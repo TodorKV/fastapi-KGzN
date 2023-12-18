@@ -7,11 +7,18 @@ from mpl_toolkits.mplot3d import Axes3D
 from io import BytesIO
 import base64
 import pandas as pd
+import googlemaps
 
 app = FastAPI()
 
-# Your existing code for Cartesian coordinates and random data generation
-# ...
+def get_cartesian(lat=None,lon=None):
+    lat, lon = np.deg2rad(lat), np.deg2rad(lon)
+    R = 6371 # radius of the earth
+    x = R * np.cos(lat) * np.cos(lon)
+    y = R * np.cos(lat) * np.sin(lon)
+    z = R *np.sin(lat)
+    return x,y,z
+
 
 @app.get("/", response_class=HTMLResponse)
 def read_root():
@@ -24,26 +31,30 @@ def read_root():
 
 @app.post("/upload")
 async def create_upload_file(file: UploadFile = File(...)):
+    api_key = 'AIzaSyBvZkQAzJVubqPixqNV02yYqw0O4TOmTq8'
+    gmaps = googlemaps.Client(key=api_key)
+
     # Read CSV file and extract data
-    # df = pd.read_csv(file.file)
-    # coordinates = list(zip(df['X'], df['Y'], df['Z']))
-    coordinates = [(random.uniform(0, 10), random.uniform(0, 10), random.uniform(0, 10)) for _ in range(500)]
+    df = pd.read_csv(file.file)
 
-    # Assign colors randomly (blue or red)
-    colors = ['blue' if random.random() < 0.5 else 'red' for _ in range(len(coordinates))]
+    lat_lng_list = []
+    colors = []
 
-    # Extract x, y, and z coordinates for plotting
-    x_values, y_values, z_values = zip(*coordinates)
+    for _, row in df.iterrows():
+        result = gmaps.geocode(row['Address'])
+        if result:
+            location = result[0]['geometry']['location']
+            lat_lng_list.append((location['lat'], location['lng']))
+            colors.append('red' if row['Category'] == 1 else 'blue')
 
-    # Create a 3D scatter plot with different colors
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(x_values, y_values, z_values, c=colors, marker='o')
+    # Create an array of Cartesian coordinates
+    cartesian_array = np.array([get_cartesian(lat, lon) for lat, lon in lat_lng_list])
 
-    # Set labels for each axis
-    ax.set_xlabel('X-axis')
-    ax.set_ylabel('Y-axis')
-    ax.set_zlabel('Z-axis')
+    # Create a 2D scatter plot with different colors based on the "Category" column
+    plt.scatter(cartesian_array[:, 0], cartesian_array[:, 1], c=colors)
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.title('2D Декартови координати')
 
     # Save the plot to a BytesIO object
     image_stream = BytesIO()
@@ -53,4 +64,4 @@ async def create_upload_file(file: UploadFile = File(...)):
     # Convert the image to base64 for embedding in HTML
     encoded_image = base64.b64encode(image_stream.read()).decode('utf-8')
 
-    return HTMLResponse(content=f"<h1>Visualization Result</h1><img src='data:image/png;base64,{encoded_image}' alt='3D Scatter Plot'>", status_code=200)
+    return HTMLResponse(content=f"<h1>Резултат</h1><img src='data:image/png;base64,{encoded_image}' alt='2D Scatter Plot'>", status_code=200)
